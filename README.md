@@ -57,11 +57,16 @@ The **Water Data Dashboard** is an R Shiny application designed to visualize and
 
 This repository uses **Git LFS** to handle large or binary files (e.g., DE files, shapefiles). If you have just cloned this repo:
 
-1. Make sure you have **Git LFS** installed on your local machine.      - [<Git LFS'c installation instructions>(https://git-lfs.github.com/)
+1. Make sure you have **Git LFS** installed on your local machine.  
+   - If you’re using Homebrew, type:  
+     ```bash
+     brew install git-lfs
+     ```  
+   - Otherwise, see the official [Git LFS installation instructions](https://git-lfs.github.com/).
 2. **Pull down* the binary files tracked by Git LFS:
 
 ```bash
- kit lfs pull
+ git lfs pull
 ```
 
 ### Data Preparation
