@@ -60,7 +60,7 @@ This repository uses **Git LFS** to handle large or binary files (e.g., DE files
 1. Make sure you have **Git LFS** installed on your local machine.      - [<Git LFS'c installation instructions>(https://git-lfs.github.com/)
 2. **Pull down* the binary files tracked by Git LFS:
 
-`bash
+```bash
  kit lfs pull
 ```
 
