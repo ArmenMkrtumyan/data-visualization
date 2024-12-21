@@ -1,0 +1,290 @@
+---
+title: "water_project"
+author: "Armen Mkrtumyan"
+date: "2024-11-20"
+output: pdf_document
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(warn=-1)
+```
+
+```{r}
+library(tidyverse)
+library(FactoMineR)
+library(factoextra)
+library(imputeTS)
+library(dplyr)
+library(readxl)
+library(sf)
+library(ggplot2)
+library(shiny)
+library(lubridate)
+library(plotly)
+library(reshape2)
+library(terra)
+library(tmap)
+library(mapview)
+```
+
+```{r}
+data <- read_excel("./Data/water_data2.xlsx")
+```
+
+```{r}
+boundary_coords <- data.frame(
+  Name = c("upper left 1", "upper left 2", "upper left middle",
+           "lower left 1", "lower left 2",
+           "upper right 1", "upper right 2", "upper right middle",
+           "lower right 1", "lower right 2"),
+  Y = c(40.596992, 40.552921, 40.517957,
+        40.427392, 40.434448,
+        40.626964, 40.589431, 40.537007,
+        40.500207, 40.459469),
+  X = c(44.967396, 44.999669, 44.953664,
+        45.109524, 45.209088,
+        44.997609, 45.103009, 45.206349,
+        45.245145, 45.264714)
+)
+
+print(boundary_coords)
+
+```
+
+Lets fill out those X and Y values by using Google Map coordinates
+
+```{r}
+centroid_X <- mean(boundary_coords$X)
+centroid_Y <- mean(boundary_coords$Y)
+
+boundary_coords <- boundary_coords %>%
+  mutate(
+    Angle = atan2(Y - centroid_Y, X - centroid_X) * (180 / pi)
+  )
+
+boundary_coords_ordered <- boundary_coords %>%
+  arrange(Angle)
+
+boundary_coords_ordered <- boundary_coords_ordered %>%
+  add_row(Name = boundary_coords_ordered$Name[1],
+          Y = boundary_coords_ordered$Y[1],
+          X = boundary_coords_ordered$X[1],
+          Angle = boundary_coords_ordered$Angle[1])
+
+print(boundary_coords_ordered)
+
+```
+
+```{r}
+boundary_matrix <- as.matrix(boundary_coords_ordered[, c("X", "Y")])
+boundary_polygon <- st_polygon(list(boundary_matrix))
+boundary_sf <- st_sfc(boundary_polygon, crs = 4326)
+st_is_valid(boundary_sf)
+
+```
+
+```{r}
+small_sevan_indices <- which(data$Water_Object == "Սևանա լիճ - Փոքր Սևան" | grepl("Փոքր Սևան", data$Station_Location))
+num_small_sevan <- length(small_sevan_indices)
+
+cat("Number of 'Small Sevan' rows to impute:", num_small_sevan, "\n")
+if (num_small_sevan != 261) {
+  warning("Expected 261 'Small Sevan' rows, but found ", num_small_sevan)
+}
+```
+
+
+```{r}
+set.seed(123)
+sampled_points <- st_sample(boundary_sf, size = num_small_sevan, type = "random")
+
+if (length(sampled_points) < num_small_sevan) {
+  stop("Not enough points could be sampled within the polygon.")
+}
+
+sampled_coords <- st_coordinates(sampled_points)
+sampled_coords_df <- as.data.frame(sampled_coords)
+colnames(sampled_coords_df) <- c("X", "Y")
+head(sampled_coords_df)
+
+```
+
+```{r}
+data_imputed <- data
+
+data_imputed$X[small_sevan_indices] <- sampled_coords_df$X
+data_imputed$Y[small_sevan_indices] <- sampled_coords_df$Y
+
+na_X <- sum(is.na(data_imputed$X[small_sevan_indices]))
+na_Y <- sum(is.na(data_imputed$Y[small_sevan_indices]))
+
+cat("Number of NA X for 'Small Sevan':", na_X, "\n")
+cat("Number of NA Y for 'Small Sevan':", na_Y, "\n")
+
+if (na_X > 0 | na_Y > 0) {
+  warning("There are still NA values in 'Small Sevan' coordinates.")
+}
+
+```
+
+```{r}
+numeric_cols <- data_imputed %>%
+  select(
+    Dissolved_Oxygen, BOD5, COD,
+    NH4, NO2, NO3, PO4,
+    Zn, Cu, Cr, As, Cd, Pb, Ni, Mo, Mn, V, Co, Fe,
+    Ca, Mg, Ba, Be, K, Na,
+    B, Al, Se, Sb, Sn,
+    Total_Inorganic_N_mg_N_L,
+    P, Cl, SO4, Si,
+    TDS, EC_microS_cm,
+    Hardness, Suspended_Solids,
+    X, Y
+  ) %>%
+  names()
+
+length(numeric_cols)
+numeric_data <- data_imputed %>%
+  select(all_of(numeric_cols))
+
+```
+
+
+# Handling missing data
+
+Linear interpolation is a good choice for numeric data where the assumption of a smooth progression between points makes sense (e.g., time-series data or other continuous data).
+
+```{r}
+na_counts <- colSums(is.na(numeric_data))
+na_counts_df <- data.frame(Column = names(na_counts), NA_Count = na_counts)
+
+na_counts_df <- na_counts_df[order(-na_counts_df$NA_Count), ]
+print(na_counts_df)
+```
+
+Including X and Y in PCA:
+Pros: Incorporates spatial information into the PCA, potentially revealing spatial patterns.
+Cons: Spatial coordinates can dominate the variance, possibly overshadowing water quality parameters.
+
+```{r}
+numeric_scaled <- scale(numeric_data)
+
+pca_result <- prcomp(numeric_scaled, center = TRUE, scale. = TRUE)
+summary(pca_result)
+
+fviz_eig(pca_result, addlabels = TRUE, ylim = c(0, 50)) +
+  ggtitle("Scree Plot: Variance Explained by Principal Components")
+
+pca_scores <- as.data.frame(pca_result$x)
+data_pca <- data_imputed %>%
+  bind_cols(pca_scores)
+
+fviz_nbclust(numeric_scaled, kmeans, method = "wss") +
+  ggtitle("Elbow Method for Determining Optimal Clusters") +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme_minimal()
+
+optimal_k <- 3
+
+set.seed(123)
+kmeans_result <- kmeans(numeric_scaled, centers = optimal_k, nstart = 25)
+
+data_pca$Cluster <- as.factor(kmeans_result$cluster)
+
+fviz_pca_ind(pca_result,
+             geom.ind = "point",
+             habillage = data_pca$Cluster,
+             palette = "jco",
+             addEllipses = TRUE,
+             legend.title = "Cluster") +
+  ggtitle(paste("PCA Clustering (k =", optimal_k, ")"))
+```
+
+```{r}
+cluster_region_table <- table(data_pca$Cluster, data_pca$Region)
+print(cluster_region_table)
+
+fviz_pca_biplot(
+  pca_result, 
+  geom.ind = "point", 
+  pointshape = 21, 
+  pointsize = 2,
+  fill.ind = data_pca$Cluster,
+  col.var = "black",
+  arrowsize = 0.8,
+  repel = TRUE
+) +
+  scale_fill_manual(values = c("#E69F00", "#56B4E9", "#009E73")) +
+  labs(title = "PCA Biplot with Clusters", fill = "Cluster") +
+  theme_minimal()
+
+
+ggsave("PCA_Biplot.pdf", width = 8, height = 6)
+
+```
+
+Cluster 1: Higher pollution indicators (e.g., NH4, EC).
+Cluster 3: Better water quality (high DO).
+
+Dissolved_Oxygen, Pb, and Zn play a significant role in defining the variability in water quality parameters.
+NH4 and EC_microS_cm are important but in the opposite direction, potentially related to higher pollution or industrial impact.
+
+ADD GEOM GITTER3
+
+```{r}
+
+elevation_data <- rast("./Data/ArmDEM.tif")
+
+elevation_data <- setMinMax(elevation_data)
+
+elevation_data_agg <- aggregate(elevation_data, fact = 2, fun = mean)
+
+cat("Original resolution:", res(elevation_data), "\n")
+cat("Aggregated resolution:", res(elevation_data_agg), "\n")
+
+
+```
+
+```{r}
+elevation_data <- rast("./Data/ArmDEM.tif")
+elevation_data <- setMinMax(elevation_data)
+
+aggregation_factor <- 16
+elevation_data_agg <- aggregate(elevation_data, fact = aggregation_factor, fun = mean)
+
+print(object.size(elevation_data_agg), units = "Mb")
+
+interactive_map <- mapview(
+  elevation_data_agg, 
+  legend = FALSE, 
+  layer.name = "Elevation",
+  col.regions = terrain.colors(10)
+)
+
+interactive_map
+
+if (!exists("interactive_map")) {
+  tmap_mode("view")
+  tm <- tm_shape(elevation_data_agg) +
+    tm_raster(
+      palette = terrain.colors(10),
+      title = "Elevation",
+      popup.vars = "Elevation"
+    ) +
+    tm_layout(legend.outside = TRUE)
+  
+  tm
+}
+
+tmap_mode("plot")
+tm_static <- tm_shape(elevation_data_agg) +
+  tm_raster(
+    palette = terrain.colors(10),
+    title = "Elevation"
+  ) +
+  tm_layout(legend.outside = TRUE)
+
+```
+

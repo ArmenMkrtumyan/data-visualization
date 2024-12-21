@@ -1,0 +1,841 @@
+---
+output:
+  pdf_document:
+    number_sections: true
+    latex_engine: xelatex
+  html_document:
+    toc: false
+    df_print: paged
+---
+
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+    
+    {\LARGE \textbf{Data Visualization}\\[0.5cm]}
+    {\Large DS116 / CS343\\[2cm]}
+    
+    \textbf{Final Project}\\[1cm]
+    
+    {\LARGE \textbf{Analysis of Water Quality in Armenia}\\[2cm]}
+    
+    \vfill
+    
+    \textbf{Authors:}\\
+    Mane Koshkaryan\\
+    Arpine Janunts\\
+    Armen Mkrtumyan\\
+    Areg Khachatryan\\[2cm]
+    
+    \vfill
+    
+    {\large American University of Armenia\\
+    Yerevan, Armenia\\
+    December 5, 2024}
+\end{titlepage}
+
+\newpage
+
+\tableofcontents
+\newpage
+
+
+
+
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+warning = FALSE, 
+message = FALSE) 
+```
+
+
+\newpage
+
+
+**Abstract**
+
+This study aims to assess the overall water quality in Armenia by examining regional differences and temporal changes through a comprehensive analysis of key water quality parameters. Using various visualization and forecasting techniques, including time series visualizations, Principle Component Analysis (PCA), correlation heatmaps, forecasting models such as SARIMA, spatial visualizations, we evaluate the behavior of essential elements like Dissolved Oxygen (DO), Biochemical Oxygen Demand (BOD5), Nitrate (NO3), Chemical Oxygen Demand (COD), and Total Dissolved Solids (TDS), etc. The analysis highlights the seasonal dynamics of these parameters, influenced by temperature fluctuations, biological activity, and anthropogenic factors. Regional differences are explored to understand localized pollution patterns, while temporal trends provide insights into long-term changes and short-term anomalies in water quality. By leveraging these insights, this research can be helpful for effective water quality management and policymaking to address the challenges of maintaining sustainable aquatic ecosystems in Armenia.
+
+**Keywords**
+
+Water, elements, PCA, COD, NO3, Dissolved Oxygen, TDS, seasonality, pollution
+
+\newpage
+
+# Overview
+
+**Introduction**
+
+Water quality is a critical factor in maintaining environmental sustainability and ensuring the well-being of both ecosystems and human populations. In this study, we analyze water quality data collected from various regions in Armenia over time. The dataset includes key water quality parameters such as Dissolved Oxygen (DO), Biochemical Oxygen Demand (BOD5), Nitrate (NO3), Chemical Oxygen Demand (COD), and Total Dissolved Solids (TDS), among others. These parameters play an essential role in assessing the overall health of water bodies and identifying potential pollution sources.
+It is important to note that the dataset used for this analysis is private, and the recorded values have been adjusted by multiplying them with a constant factor to maintain confidentiality. As a result, the analysis does not focus on the absolute values of the parameters but rather on their patterns and variations across different regions and over time. This approach ensures the protection of sensitive data while still allowing meaningful insights into water quality dynamics.
+
+# Methodology
+Since we analyzed the dataset through different visualization techniques, there was a need for data preprocessing in certain instances.
+The initial dataset contained irregularly spaced observations, which posed challenges for time series analysis and forecasting. To address this, the data was transformed into monthly averages for each year. This preprocessing step allowed for the creation of a consistent and structured dataset, enabling robust analysis of trends and seasonality.
+
+Additionally for spatial visualizations, missing x, y coordinates were identified and added through data engineering processes to improve spatial coverage. For spatial visualizations, the x, y coordinates were further aggregated by taking the mean for all numeric values at unique coordinate points. This ensured that repeated measurements at the same location were consolidated, providing a cleaner and more accurate representation of spatial data.
+By focusing on how water quality parameters change over months and across regions, this study provides actionable insights into the temporal and spatial dynamics of water quality in Armenia, supporting informed decision-making for effective water management.
+
+The data preprocessing procedure, analysis of the data through different visualization techniques was done with the programming language R, and final findings were illustrated with the help of the Shiny package in R. 
+
+\newpage 
+
+# Literature Review
+
+Water quality analysis is crucial for ensuring water is safe, usable, and sustainable. Before analyzing Armenian water data, we conducted a brief review of global studies and methodologies to understand key approaches and focus areas in water research. Most studies emphasize parameters like Biochemical Oxygen Demand (BOD), Chemical Oxygen Demand (COD), pH, and Total Suspended Solids (TSS), as these are strong indicators of water quality. BOD reflects the organic pollution level in water, while COD measures the total amount of organic and inorganic compounds that require oxidation. (Majerek et al.) pH is essential for understanding the water’s acidity or alkalinity, and TSS provides insight into the physical quality of water by measuring particles suspended in it Research also shows that water quality is dynamic and influenced by natural factors such as rainfall, temperature, and seasonal changes. For instance, rainfall often leads to increased levels of suspended solids and organic matter due to runoff, while high temperatures can accelerate oxygen depletion, affecting Dissolved Oxygen (DO) levels. Understanding these interactions is essential for interpreting fluctuations in the dataset.Methods such as Principal Component Analysis (PCA) and clustering are widely used in water research. They help identify what causes water contamination, like factories, farming, or city development. Visual tools, such as maps and trend graphs, make it easier to see where the biggest problems are and how they change over time. For Armenia, focusing on mentioned above will help identify patterns in water quality. This research builds on methods used around the world and will create clear, useful visuals for understanding Armenia’s unique water challenges.
+
+
+
+
+
+```{r}
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(zoo)
+library(forecast)
+library(tseries)
+library(reshape2)
+library(plotly)
+library(egg)
+library(factoextra)
+library(sf)
+library(terra)
+library(sf)
+library(dplyr)
+library(tmap)
+```
+
+
+```{r}
+data <- read_excel("./Data/water_data2.xlsx")
+data$Date <- as.Date(data$Date, format = "%Y-%m-%d")
+
+data_imputed <- read.csv("./Data/data_imputed.csv")
+data_imputed <- data_imputed[!is.na(data_imputed$Date), ]
+
+```
+
+\newpage
+
+# Data
+
+The dataset with 2581 observations contains water quality measurements collected across various regions in Armenia starting 2022 to 2024 Key parameters include Dissolved Oxygen, BOD5, COD, Nitrates, and Total Dissolved Solids, among others, providing insights into the chemical, physical, and biological aspects of water quality. The data includes spatial coordinates as well, enabling both temporal and regional analysis. Adjusted for confidentiality, the dataset emphasizes trends and patterns rather than absolute values, supporting environmental monitoring and management efforts.
+
+```{r}
+translation <- c(
+  "Սևան" = "Sevan",
+  "Հարավային" = "Southern",
+  "Արարատյան" = "Araratian",
+  "Հյուսիսային" = "Northern",
+  "Հրազդան" = "Hrazdan",
+  "Ախուրյան" = "Akhuryan"
+)
+
+data <- data %>%
+  mutate(Region = recode(Region, !!!translation))
+
+
+ggplot(data, aes(x = Region)) +
+  geom_bar(fill = "coral", color = "black") +
+  labs(title = "Distribution of Sampling by Region", x = "Region", y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme_minimal()
+```
+
+The Sevan region has the highest number of samples, with a count exceeding 750. This suggests a high level of monitoring or focus on this region, possibly due to its ecological importance. The Northern and Hrazdan regions also have significant sample counts, indicating they are key areas for monitoring but slightly less emphasized than Sevan. Araratian, Southern, and especially Akhuryan regions have fewer samples collected. These regions may have fewer monitoring stations or could be considered lower-priority areas for water quality assessment.
+
+
+```{r}
+ggplot(data, aes(x = as.Date(Date))) +
+  geom_histogram(bins = 36, fill = "steelblue", color = "black") +
+  labs(title = "Sampling Frequency Over Time", x = "Date", y = "Count of Records") +
+  theme_minimal()
+
+```
+The peaks of sampling the data has been observed in mid-2023 and late 2024. These peaks may indicate periods of increased monitoring or heightened environmental concerns. Lower sampling frequencies at certain intervals, such as early 2022, could reflect logistical challenges or reduced monitoring efforts during those times.
+
+```{r}
+
+data_imputed1 <- read.csv("./Data/data_imputed.csv")
+translation <- c(   "Սևան" = "Sevan",   "Հարավային" = "Southern",   "Արարատյան" = "Araratian",   "Հյուսիսային" = "Northern",   "Հրազդան" = "Hrazdan",   "Ախուրյան" = "Akhuryan" )  
+data_imputed1 <- data_imputed1 %>%   mutate(Region = recode(Region, !!!translation))
+
+armenia_map <- st_read("./Data/Armenia_Marzes/Armenia_Marzes.shp", quiet = T)
+
+
+sampling_sf <- st_as_sf(data_imputed1, coords = c("X", "Y"), crs = 4326)
+
+armenia_map <- st_transform(armenia_map, crs = st_crs(sampling_sf))
+
+ggplot() +
+  geom_sf(data = armenia_map, fill = "lightgrey", color = "black") +
+  geom_sf(data = sampling_sf, aes(color = Region), size = 2, alpha = 0.7) +
+  labs(title = "Sampling Locations on Armenia Map", color = "Region") +
+  theme_minimal()
+
+
+```
+
+
+
+\newpage
+# Hypotheses and Analysis
+
+--Hypothesis One-- 
+
+H1: The water pollution index is significantly dependent on the elevation of the monitoring station.
+
+H0: The water pollution index is not significantly dependent on the elevation of the monitoring station.
+
+The hypothesis that water pollution levels are significantly dependent on the elevation of monitoring stations was explored through spatial data visualization. Our analysis revealed no discernible trend linking elevation to pollution levels, with both low- and high-elevation stations exhibiting similar pollution profiles. The spatial overlay of water pollution indices with elevation contours demonstrated that pollution is not influenced by elevation gradients, leading us to reject the hypothesis. Instead, the visualizations highlighted a striking trend: monitoring stations near the capital region consistently showed higher pollution levels compared to rural or remote areas. This pattern was particularly pronounced for heavy metals, with pollution hotspots clustering in urban and industrial zones. These findings underscore that the primary driver of water pollution is proximity to urban centers rather than elevation, emphasizing the need for targeted mitigation efforts in urban and industrial areas to address the underlying sources of contamination.
+
+-- Hypothesis Two--
+
+H1: There is a seasonal behavior for the elements contributing to the water quality and the quality is dependent on the Region where the water is being analyzed.
+
+H0: There is no seasonality in the data and the water quality is not anyhow dependent on the Region.
+
+
+After analyzing the data and visualizations of water quality parameters, including Dissolved Oxygen (DO), BOD5, COD, NH4, and others, across multiple regions and time periods, we find substantial evidence supporting the alternative hypothesis. Seasonal behavior is evident in the time series plots of elements such as DO and BOD5, which display clear seasonal patterns. For example, DO levels increase during cooler months due to higher oxygen solubility and decrease during warmer months because of elevated metabolic rates and biological oxygen demand. Other parameters, such as COD and NH4, also exhibit fluctuations corresponding to agricultural runoff or seasonal precipitation changes. These findings indicate that seasonal changes significantly influence water quality elements.
+
+Additionally, regional variations in water quality are highlighted by boxplots grouped by regions. Sevan shows higher median DO levels, likely reflecting its pristine water conditions, while Hrazdan exhibits greater variability and extreme outliers, pointing to pollution hotspots or inconsistent pollution control measures. Parameters like BOD5 and COD show increased variability in regions like Akhuryan and Southern, suggesting localized pollution events. These regional differences underscore that water quality is significantly influenced by the region where the water is analyzed.
+
+Statistical tests further confirm these findings. The ADF test results indicate that the time series data for various elements is non-stationary until differenced, affirming the presence of trends and seasonal components. 
+
+In conclusion, based on visual evidence and statistical results, we reject the null hypothesis and accept the alternative hypothesis. This confirms the existence of a clear seasonal behavior in water quality elements and a dependency on the region of analysis. These findings emphasize the need for region-specific and season-aware water management strategies to address the challenges of maintaining sustainable water quality in Armenia.
+
+\newpage
+# Categorical Variables
+
+
+## Correlation Heatmaps
+
+
+Correlation heatmaps are useful for identifying relationships among water quality parameters, such as how nutrients like nitrate and phosphate are linked to agricultural runoff or how heavy metals like lead and cadmium may originate from similar industrial sources. They help in detecting patterns, prioritizing interventions, and reducing redundancy in the dataset by highlighting strongly correlated variables. Additionally, these visualizations support monitoring and decision-making for effective water quality management.
+
+```{r}
+create_interactive_heatmap <- function(group_vars, group_name) {
+  group_data <- data[, group_vars, drop = FALSE]
+  cor_matrix <- round(cor(group_data, use = "pairwise.complete.obs"), 2)
+  cor_data <- melt(cor_matrix)
+  
+  heatmap_plot <- ggplot(cor_data, aes(x = Var1, y = Var2, fill = value)) +
+    geom_tile(color = "white") +
+    scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                         midpoint = 0, limit = c(-1, 1), name = "Correlation") +
+    labs(title = paste("Heatmap of", group_name, "Correlations"),
+         x = NULL, y = NULL) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+  
+}
+
+nutrients <- c("Dissolved_Oxygen", "BOD5", "COD", "NH4", "NO2", "NO3", "PO4")
+metals <- c("Zn", "Cu", "Cr", "As", "Cd", "Pb", "Ni", "Mo", "Mn", "V", "Co", "Fe")
+general <- c("Ca", "Mg", "Ba", "Be", "K", "Na", "Cl", "SO4", "Si", "TDS", "EC_microS_cm", "Hardness", "Suspended_Solids")
+
+p1 <- create_interactive_heatmap(nutrients, "Nutrients")
+p2 <- create_interactive_heatmap(metals, "Metals")
+p3 <- create_interactive_heatmap(general, "General")
+
+p1
+```
+
+
+|
+**Heatmap of Nutrients Correlation:**
+
+The heatmap reveals significant relationships among water quality parameters. Dissolved Oxygen (DO) is strongly negatively correlated with COD (Chemical Oxygen Demand), indicating that higher chemical pollution reduces oxygen levels. PO4 (phosphate) and NH4 (ammonium) are highly positively correlated, suggesting they may share common sources such as agricultural runoff or wastewater discharge. BOD5 (Biochemical Oxygen Demand), COD, and NH4 are also positively correlated, reflecting the interplay between organic and nutrient pollution. Additionally, NO2 (nitrite) and NO3 (nitrate) show moderate correlations with other nutrients, indicating their role in nutrient enrichment.
+
+
+```{r}
+p2
+```
+
+**Heatmap of Metals Correlation:**
+
+The heatmap shows several positive relationships between metals. Zn (Zinc) and Cd (Cadmium) have a moderate positive correlation, meaning they might come from similar sources like industrial or urban pollution. Zn also shows positive correlations with Co (Cobalt), Mn (Manganese), and Cu (Copper), suggesting they often occur together in certain environmental or industrial settings. Similarly, Cd and Co are positively correlated, possibly due to shared sources like industrial waste. Mn and Co also have a strong positive correlation, indicating they might coexist in natural mineral deposits or under similar environmental conditions.  Fe (Iron) and Pb (Lead) show a significant correlation, indicating a likely shared source such as industrial activities or mining.  Additionally, Mn along with As (Arsenic) and Cd, display strong correlations, pointing to shared pollution sources like wastewater or contaminated soils.
+
+
+```{r}
+p3
+```
+**Heatmap of General Correlations**
+
+The heatmap reveals several significant relationships among water quality parameters. Hardness and Ca (Calcium) exhibit an extremely strong positive correlation, highlighting calcium's central role in water hardness. Similarly, Na (Sodium) and Cl (Chloride) show a strong positive correlation, indicating their shared origins, such as saline intrusion or anthropogenic sources. Ca and SO4 (Sulfate) are also positively correlated, likely due to common geochemical processes like gypsum dissolution. In contrast, Si (Silicon) shows predominantly negative correlations, especially with Mg (Magnesium), suggesting an inverse relationship that may result from differing geological or chemical pathways. TDS (Total Dissolved Solids) and EC_microS_cm (Electrical Conductivity) are closely correlated, as both measure ionic content. Parameters like Suspended_Solids and Be (Beryllium), with near-zero correlations, appear largely independent of other variables, implying that their levels are unaffected by changes in the rest of the dataset.
+
+
+
+## Boxplots 
+
+
+The boxplots of water elements across regions are highlighting regional differences, such as areas with consistently higher medians or more outliers, which could indicate localized pollution events or variability in pollution control. These findings support the hypothesis by illustrating how regional and environmental factors significantly impact water quality and help prioritize areas for further investigation and strategy implementation.
+
+```{r}
+key_parameters <- c("Dissolved_Oxygen", "BOD5", "COD", "NH4")
+
+for (param in key_parameters) {
+  print(ggplot(data, aes(x = Region, y = .data[[param]])) +
+          geom_boxplot() +
+          labs(title = paste(param, "by Region"),
+               x = "Region",
+               y = param) +
+          theme_minimal())
+  }
+```
+
+\newpage
+Dissolved Oxygen (DO): Median DO levels are generally stable across regions, with higher levels observed in Sevan, reflecting its relatively better water quality. However, notable low outliers in regions like Hrazdan and Southern suggest localized stressors, such as pollution or reduced water flow, potentially depleting oxygen levels.
+BOD5 (Biochemical Oxygen Demand): Low median BOD5 levels across all regions suggest moderate organic pollution in general, indicating satisfactory water quality for most samples. However, extreme outliers in Akhuryan, Sevan, and Southern regions highlight potential hotspots of organic contamination, possibly due to untreated wastewater or agricultural runoff. The narrower interquartile ranges in Hrazdan and Araratian suggest more consistent pollution control in these areas.
+COD (Chemical Oxygen Demand): COD values also indicate low to moderate pollution overall, but significant outliers in Akhuryan and Sevan highlight sporadic pollution events. Wider variability in regions like Akhuryan and Hrazdan suggests inconsistent pollution levels, whereas narrower ranges in Southern and Araratian reflect better stability and potentially improved water management.
+Ammonium (NH4): NH4 levels show the highest variability among regions, with extreme outliers concentrated in Hrazdan, Northern, and Southern. This variability indicates possible pollution sources such as agricultural runoff or wastewater discharge. The stable and lower NH4 levels in Araratian and Akhuryan suggest better management or less exposure to pollution sources.
+The boxplots collectively reveal a dual narrative of general stability in water quality for most regions, reflected in the low medians and narrow ranges for several parameters. Regions such as Hrazdan, Akhuryan, and Sevan emerge as areas of concern, with higher variability and extreme values across multiple parameters. This suggests localized pollution sources or inconsistencies in water quality management. Conversely, regions like Araratian and Southern exhibit more stable patterns, reflecting comparatively better water quality management practices.
+
+
+\newpage
+
+# Time Series Analysis and Forecasting
+
+## Analysis
+
+```{r}
+#Aggregating the numerical data for time series analysis
+monthly_data <- data %>%
+  mutate(Month = floor_date(Date, unit = "month")) %>% 
+  filter(!is.na(Month)) %>% #
+  group_by(Month) %>%
+  summarise(across(where(is.numeric), mean, na.rm = TRUE))  
+```
+
+
+The next plots will show how different elements in the water change over time to understand if there is a seasonality or not. The importance of this is to help the decision-makers understand what strategies should be implemented each month to improve the water quality in Armenia.
+
+
+
+```{r}
+# Plot for Dissolved Oxygen
+ggplot(monthly_data, aes(x = Month, y = Dissolved_Oxygen)) + 
+  geom_line() +
+  scale_x_date(
+    date_labels = "%b %Y",       
+    date_breaks = "1 month"      
+  ) +
+  labs(
+    x = "Date",
+    y = "Dissolved Oxygen",
+    title = "Time Series Analysis of Dissolved Oxygen"
+  ) +
+  theme_minimal() +              
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1)   
+  )
+
+```
+
+
+
+Dissolved oxygen element is the concentration of dissolved oxygen in the water. Dissolved oxygen influences the health of aquatic organisms, ecosystem stability, and water usability for humans and industry. Monitoring DO levels is essential for environmental management and sustainable use of water resources. The seasonal variation in DO levels is primarily affected by the relationship between temperature and oxygen solubility. Cooler months enhance oxygen retention, while warmer months increase oxygen demand and decrease solubility. Understanding these dynamics is essential for predicting DO fluctuations and managing aquatic ecosystems, particularly during periods of higher stress like summer months with low DO levels. The low levels of DO during warmer periods align with the natural decrease in oxygen solubility as water temperatures rise.Increased metabolic rates of aquatic organisms during these months lead to higher oxygen consumption, further reducing DO levels. These findings emphasize the need for proactive management strategies to maintain ecological balance and prevent prolonged hypoxic conditions, especially during warmer months.
+
+
+\newpage
+
+```{r}
+# Plot for BOD5
+ggplot(monthly_data, aes(x = Month, y = BOD5)) + 
+  geom_line() +
+  scale_x_date(
+    date_labels = "%b %Y",       
+    date_breaks = "1 month"      
+  ) +
+  labs(
+    x = "Date",
+    y = "BOD5 (Biochemical Oxygen Demand)",
+    title = "Time Series Analysis of BOD5 (Biochemical Oxygen Demand)"
+  ) +
+  theme_minimal() +              
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1)   
+  )
+
+
+```
+
+
+BOD5 shows the amount of oxygen consumed by microorganisms to decompose organic matter over five days.
+Higher BOD5 Levels occur during periods of increased agricultural activity (fertilizer runoff) or after rainfall events that wash organic pollutants into water bodies. Warmer months may also contribute to higher BOD5 as elevated temperatures boost microbial metabolic rates, increasing oxygen consumption.
+Lower BOD5 levels occur during cooler months, when microbial activity slows and organic matter decomposition decreases.Increased water flow during these periods may make the pollutants weaker, reducing the BOD5.
+This implies that there is a need for implementing better agricultural practices (controlled fertilizer use) and improving wastewater treatment will reduce organic pollutant inputs especially during increased agricultural activity.
+
+
+\newpage
+```{r}
+
+# Plot for TDS
+ggplot(monthly_data, aes(x = Month, y = TDS)) +
+  geom_line() +
+  scale_x_date(
+    date_labels = "%b %Y",       
+    date_breaks = "1 month"      
+  ) +
+  labs(
+    x = "Date",
+    y = "TDS (Total Dissolved Solids)",
+    title = "Time Series Analysis of TDS (Total Dissolved Solids)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1)   
+  )
+```
+
+
+TDS is the total amount of dissolved solids in the water. Peaks in TDS consistently occur in the late months of each year (November–December), aligning with reduced water flow and increased runoff that concentrates dissolved solids. Elevated TDS levels may indicate potential water quality issues, particularly if they exceed acceptable thresholds. These high levels can affect aquatic ecosystems and the usability of water for drinking or irrigation.
+Falls occur in mid-year (April–July), possibly due to the dilution effect of spring and summer rains and increased water flow.Low TDS levels typically suggest good water quality, as they indicate less dissolved mineral content. However, extremely low levels may also reduce the water's buffering capacity, making it more susceptible to pH changes.
+
+
+\newpage
+
+```{r}
+# Plot for NO3
+ggplot(monthly_data, aes(x = Month, y = NO3)) + 
+  geom_line() +
+  scale_x_date(
+    date_labels = "%b %Y",       
+    date_breaks = "1 month"      
+  ) +
+  labs(
+    x = "Date",
+    y = "NO3 (Nitrate)",
+    title = "Time Series Analysis of NO3 (Nitrate)"
+  ) +
+  theme_minimal() +              
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1)  
+  )
+```
+
+
+
+NO3 is the concentration of nitrate ions. High Nitrate Levels typically occur during late-year or early-year months, aligning with agricultural activity and seasonal runoff. Peaks in late 2022 and early 2024 highlight the influence of human activities like fertilizer use and rainfall-driven nutrient transport.
+Elevated nitrate levels can lead to eutrophication, promoting algal blooms. These blooms can deplete dissolved oxygen, causing stress to aquatic ecosystems.
+High nitrate levels may exceed acceptable limits for drinking water, posing health risks, particularly for infants (e.g., blue baby syndrome). Peaks in nitrate levels are closely tied to agricultural runoff, urban wastewater discharge, and seasonal precipitation patterns.
+Falls suggest natural recovery mechanisms, such as biological uptake and dilution, play a role in nitrate regulation.
+
+
+\newpage
+
+```{r}
+# Plot for COD
+ggplot(monthly_data, aes(x = Month, y = COD)) + 
+  geom_line() +
+  scale_x_date(
+    date_labels = "%b %Y",       
+    date_breaks = "1 month"      
+  ) +
+  labs(
+    x = "Date",
+    y = "COD (Chemical Oxygen Demand)",
+    title = "Time Series Analysis of COD (Chemical Oxygen Demand)"
+  ) +
+  theme_minimal() +              
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1)  
+  )
+
+
+```
+
+
+COD is the amount of oxygen required to oxidize organic and inorganic matter chemically. Peaks are mostly observed during late-year months, potentially driven by agricultural and industrial runoff combined with reduced water flow.
+These peaks suggest increased organic load in the water, which demands more oxygen for chemical oxidation.
+High COD levels indicate a higher presence of organic and inorganic pollutants, which can stress aquatic ecosystems by depleting oxygen levels needed for aquatic life. If sustained, elevated COD can result in hypoxic conditions, particularly in stagnant or slow-moving water bodies. Falls are observed during early-year months and mid-year months , likely due to seasonal dilution effects and reduced pollutant inputs.
+Peaks in COD suggest periodic pollution events, potentially driven by agricultural runoff, industrial discharges, or urban wastewater.
+The late-year peaks might also correlate with post-harvest agricultural activities or decreased water dilution capacity during dry periods.
+
+
+\newpage
+
+
+```{r}
+pollution_standards <- data.frame(
+  Parameter = c(" ", "PO4", "Zn", "Cu", "Cr", "Cd", "Pb", "As", "COD", "BOD5", "TDS"),
+  Min = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),         # Minimum acceptable levels
+  Max = c(50, 1, 3, 2, 0.05, 0.01, 0.01, 0.01, 150, 10, 1000) # Maximum tolerable levels
+)
+
+pollution_weights <- data.frame(
+  Parameter = c("NO3", "PO4", "Zn", "Cu", "Cr", "Cd", "Pb", "As", "COD", "BOD5", "TDS"),
+  Weight = c(0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1) 
+)
+
+pollution_data <- monthly_data %>%
+  select(Month, NO3, PO4, Zn, Cu, Cr, Cd, Pb, As, COD, BOD5, TDS) %>% # Select relevant columns
+  mutate(
+    # Normalize each parameter
+    NO3_normalized = (NO3 - pollution_standards$Min[1]) / (pollution_standards$Max[1] - pollution_standards$Min[1]) * 100,
+    PO4_normalized = (PO4 - pollution_standards$Min[2]) / (pollution_standards$Max[2] - pollution_standards$Min[2]) * 100,
+    Zn_normalized = (Zn - pollution_standards$Min[3]) / (pollution_standards$Max[3] - pollution_standards$Min[3]) * 100,
+    Cu_normalized = (Cu - pollution_standards$Min[4]) / (pollution_standards$Max[4] - pollution_standards$Min[4]) * 100,
+    Cr_normalized = (Cr - pollution_standards$Min[5]) / (pollution_standards$Max[5] - pollution_standards$Min[5]) * 100,
+    Cd_normalized = (Cd - pollution_standards$Min[6]) / (pollution_standards$Max[6] - pollution_standards$Min[6]) * 100,
+    Pb_normalized = (Pb - pollution_standards$Min[7]) / (pollution_standards$Max[7] - pollution_standards$Min[7]) * 100,
+    As_normalized = (As - pollution_standards$Min[8]) / (pollution_standards$Max[8] - pollution_standards$Min[8]) * 100,
+    COD_normalized = (COD - pollution_standards$Min[9]) / (pollution_standards$Max[9] - pollution_standards$Min[9]) * 100,
+    BOD5_normalized = (BOD5 - pollution_standards$Min[10]) / (pollution_standards$Max[10] - pollution_standards$Min[10]) * 100,
+    TDS_normalized = (TDS - pollution_standards$Min[11]) / (pollution_standards$Max[11] - pollution_standards$Min[11]) * 100
+  ) %>%
+  mutate(
+    Pollution_Index = NO3_normalized * pollution_weights$Weight[1] +
+                      PO4_normalized * pollution_weights$Weight[2] +
+                      Zn_normalized * pollution_weights$Weight[3] +
+                      Cu_normalized * pollution_weights$Weight[4] +
+                      Cr_normalized * pollution_weights$Weight[5] +
+                      Cd_normalized * pollution_weights$Weight[6] +
+                      Pb_normalized * pollution_weights$Weight[7] +
+                      As_normalized * pollution_weights$Weight[8] +
+                      COD_normalized * pollution_weights$Weight[9] +
+                      BOD5_normalized * pollution_weights$Weight[10] +
+                      TDS_normalized * pollution_weights$Weight[11]
+  )
+
+pollution_data <- pollution_data %>% select(Month, Pollution_Index) %>%
+  filter(year(Month) >= 2022)
+
+pollution_data$Month <- as.Date(pollution_data$Month)
+
+ggplot(pollution_data, aes(x = Month, y = Pollution_Index)) +
+  geom_line() +
+  labs(title = "Time Series Analysis of Pollution index", x = "Date", y = "Pollution index") +
+  theme_minimal()
+
+ts_data1 <- ts(pollution_data$Pollution_Index, start = 2022, end = 2024, frequency = 12)
+
+
+```
+
+
+The Pollution Index shows high variability with several sharp peaks and troughs, reflecting dynamic changes in water quality. There is an initial decline in pollution levels from late 2022 into mid-2023, which could indicate temporary improvements in water conditions or reduced pollutant discharges during that period. However, the latter half of 2023 and early 2024 exhibit significant fluctuations, with an overall upward trend towards the end of the timeline. This suggests an increase in pollutant levels or events impacting water quality.
+No strong seasonal cycles are evident in the graph. However, the peaks and troughs might correlate with specific factors, such as:
+Rainfall and Runoff: Spikes in pollution could be tied to runoff events carrying pollutants into water bodies.
+Agricultural Cycles: Fertilizer usage or agricultural runoff during planting and harvesting seasons might explain some of the variability.
+Industrial Discharges: Increases in industrial activity might contribute to the observed peaks.
+
+\newpage
+
+## Time Series Forecasting
+
+**FORECASTING POLLUTION INDEX WITH SARIMA METHOD:**
+
+```{r}
+# Step 1: Checking if the data is stationary, to be able to use the SARIMA model
+  
+adf_test <- adf.test(ts_data1, alternative = "stationary")
+
+if (adf_test$p.value > 0.05) {
+  differenced_data <- diff(ts_data1)
+} else {
+  differenced_data <- ts_data1 
+}
+
+# Testing if the differenced data is stationary with ADF test again
+
+adf_test2 <- adf.test(differenced_data, alternative = "stationary")
+
+if (adf_test2$p.value > 0.05) {
+  differenced_data2 <- diff(differenced_data)
+} else {
+  differenced_data2 <- differenced_data
+}
+
+
+adf_test3 <- adf.test(differenced_data2, alternative = "stationary")
+
+if (adf_test3$p.value > 0.05) {
+  differenced_data3 <- diff(differenced_data2)
+} else {
+  differenced_data3 <- differenced_data2
+}
+
+plot(differenced_data3, main = "Differenced Data", ylab = "Differenced Index", xlab = "Year")
+```
+
+
+
+```{r}
+# Step 2: Finding the best parameters for the model according to the lowest value of AIC criteria
+p_range <- 0:2
+q_range <- 0:2
+P_range <- 0:2
+Q_range <- 0:2
+
+results <- list()
+
+
+for (p in p_range) {
+  for (q in q_range) {
+    for (P in P_range) {
+      for (Q in Q_range) {
+        model <- try(Arima(differenced_data3, order = c(p, 1, q), seasonal = c(P, 1, Q)), silent = TRUE)
+        
+        if (!inherits(model, "try-error")) {
+          results[[length(results) + 1]] <- list(model = model, AIC = AIC(model),
+                                                 p = p, d = 1, q = q, P = P, D = 1, Q = Q)
+        }
+      }
+    }
+  }
+}
+
+sorted_results <- do.call(rbind, lapply(results, function(x) data.frame(AIC = x$AIC, 
+                                                                        p = x$p, d = x$d, q = x$q,
+                                                                        P = x$P, D = x$D, Q = x$Q)))
+sorted_results <- sorted_results[order(sorted_results$AIC), ]
+
+
+```
+
+
+```{r}
+
+best_model_params <- sorted_results[1, ]
+best_model <- Arima(differenced_data3, order = c(best_model_params$p,
+                                             best_model_params$d, best_model_params$q),
+                    seasonal = c(best_model_params$P, best_model_params$D, best_model_params$Q))
+```
+
+
+
+\newpage
+
+```{r}
+forecast_best_model <- forecast(best_model, h = 12)
+
+plot(forecast_best_model, main = "Forecast from Best SARIMA Model",
+     xlab = "Year", ylab = "Pollution index", col = "blue")
+
+```
+
+
+The Pollution Index analysis shows changes in water quality over time. From 2022 to early 2024, pollution levels varied significantly. In 2022, the index started high, likely due to industrial waste or agricultural runoff. By mid-2022, pollution decreased, possibly due to natural recovery, rainfall, or pollution control efforts. However, from late 2022 to early 2024, the index showed regular ups and downs, likely caused by seasonal runoff, industrial discharges, or changing rainfall patterns. Overall, the Pollution Index remained stable without a clear long-term increase or decrease, suggesting a balance between pollution sources and natural recovery.
+
+The SARIMA model forecasts pollution levels until 2025. The prediction shows continued fluctuations caused by similar factors like human activity and seasonal changes. The forecasted pollution levels remain close to the historical average, with no extreme changes expected. However, the uncertainty grows over time, as shown by wider confidence intervals. A sharp increase in mid-2024 followed by a drop could reflect events like heavy rainfall or industrial activity.
+
+In short, pollution levels are influenced by both natural and human factors, with short-term spikes but no major long-term trend. Monitoring and better management of pollution sources are important to maintain water quality and respond to sudden increases in pollution.
+
+
+
+\newpage
+
+```{r, fig.width = 10, fig.length = 5}
+
+pollution_data$Moving_Avg_5 <- zoo::rollmean(pollution_data$Pollution_Index, k = 5, fill = NA, align = "right")
+pollution_data <- pollution_data %>% filter(!is.na(Moving_Avg_5))
+
+forecasted_value <- mean(tail(pollution_data$Pollution_Index, 5), na.rm = TRUE)
+
+forecast_date <- max(pollution_data$Month, na.rm = TRUE) + months(1)
+x_limits <- c(min(pollution_data$Month, na.rm = TRUE), forecast_date)
+
+ggplot(pollution_data, aes(x = Month)) +
+  geom_line(
+    aes(y = Pollution_Index, color = "Original Data"), 
+    size = 1, alpha = 0.6
+  ) +
+  geom_line(
+    aes(y = Moving_Avg_5, color = "5-Moving Average"), 
+    size = 1
+  ) +
+  annotate(
+    "point", x = forecast_date, y = forecasted_value, 
+    color = "darkgreen", size = 3
+  ) +
+  annotate(
+    "text", x = forecast_date, y = forecasted_value, 
+    label = paste("Forecast:", round(forecasted_value, 2)), 
+    vjust = -1, hjust = 0.5, size = 2, color = "blue"
+  ) +
+  labs(
+    title = "Pollution_Index with 5-Moving Average",
+    x = "Date",
+    y = "Pollution_Index",
+    color = "Legend"
+  ) +
+  scale_color_manual(values = c("Original Data" = "red", "5-Moving Average" = "blue")) +
+  scale_x_date(limits = x_limits, date_labels = "%b %Y", date_breaks = "1 month") +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+```
+
+
+We have implemented the 5-moving average method to highlight smoothed trends and fluctuations along with the actual pollution data. Additionally, a forecasted value for November 2024 is included, with a predicted Pollution Index of approximately 13.26.
+The original pollution data shows significant short-term variability, with sharp peaks and drops observed, particularly between October 2023 and April 2024. These fluctuations likely reflect episodic pollution events or irregular environmental changes.
+The 5-moving average smooths out the short-term noise, revealing a more gradual trend over time. After an increase from late 2023 to early 2024, the trend stabilizes and declines slightly by mid-2024, before rebounding towards the end of the year.
+The forecasted Pollution Index for November 2024 is consistent with the recent trend, suggesting no significant deviation. This indicates that pollution levels may stabilize around their current range.
+The significant variability in the original data underscores the need for frequent and consistent monitoring to capture episodic pollution events. The gradual decline and stabilization in the moving average suggest possible seasonal or management-driven improvements in pollution levels.The forecast emphasizes stability but does not account for potential abrupt changes, highlighting the importance of continued predictive modeling and mitigation strategies to address unexpected events.
+
+
+\newpage
+# Principle Component Analysis
+
+```{r}
+numeric_data <- data_imputed %>%
+  select(where(is.numeric))
+
+numeric_scaled <- scale(numeric_data)
+
+pca_result <- prcomp(numeric_scaled, center = TRUE, scale. = TRUE)
+
+#summary(pca_result)
+
+fviz_eig(pca_result, addlabels = TRUE, ylim = c(0, 50)) +
+  ggtitle("Scree Plot: Variance Explained by Principal Components")
+
+pca_scores <- as.data.frame(pca_result$x)
+data_pca <- data_imputed %>%
+  bind_cols(pca_scores)
+
+fviz_nbclust(numeric_scaled, kmeans, method = "wss") +
+  ggtitle("Elbow Method for Determining Optimal Clusters") +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme_minimal()
+
+optimal_k <- 3
+
+set.seed(123) 
+kmeans_result <- kmeans(numeric_scaled, centers = optimal_k, nstart = 25)
+
+data_pca$Cluster <- as.factor(kmeans_result$cluster)
+
+fviz_pca_ind(pca_result,
+             geom.ind = "point",
+             habillage = data_pca$Cluster,
+             palette = "jco",
+             addEllipses = TRUE,
+             legend.title = "Cluster") +
+  ggtitle(paste("PCA Clustering (k =", optimal_k, ")"))
+
+cluster_region_table <- table(data_pca$Cluster, data_pca$Region)
+print(cluster_region_table)
+
+fviz_pca_biplot(
+  pca_result, 
+  geom.ind = "point", 
+  pointshape = 21, 
+  pointsize = 2,
+  fill.ind = data_pca$Cluster,
+  col.var = "black",
+  arrowsize = 0.8,
+  repel = TRUE
+) +
+  scale_fill_manual(values = c("#E69F00", "#56B4E9", "#009E73")) +
+  labs(title = "PCA Biplot with Clusters", fill = "Cluster") +
+  theme_minimal()
+
+
+ggsave("PCA_Biplot.pdf", width = 8, height = 6)
+
+```
+
+Cluster 3: Higher pollution indicators (e.g., NH4, EC). 
+
+Cluster 1: Better water quality (high DO).
+
+Dissolved_Oxygen, Pb, and Zn play a significant role in defining the variability in water quality parameters.
+NH4 and EC_microS_cm are important but in the opposite direction, potentially related to higher pollution or industrial impact.
+
+
+\newpage 
+
+# Spatial Visualizations
+
+```{r}
+
+elevation_data <- terra::rast("./Data/ArmDEM.tif")
+elevation_data <- terra::setMinMax(elevation_data)
+
+stations_sf <- st_as_sf(data_imputed, coords = c("X", "Y"), crs = 4326)
+
+stations_sf <- st_transform(stations_sf, crs = 32638)
+
+elev_vals <- extract(elevation_data, st_coordinates(stations_sf))
+
+stations_sf$Elevation <- elev_vals$ArmDEM
+
+selected_params <- c("BOD5", "COD", "NH4")
+stopifnot(all(selected_params %in% names(stations_sf)))
+
+for (param in selected_params) {
+  p_min <- min(stations_sf[[param]], na.rm = TRUE)
+  p_max <- max(stations_sf[[param]], na.rm = TRUE)
+  stations_sf[[paste0(param, "_norm")]] <- (stations_sf[[param]] - p_min) / (p_max - p_min)
+}
+
+stations_df <- st_drop_geometry(stations_sf)
+
+coords <- st_coordinates(stations_sf)
+stations_df$X <- coords[,1]
+stations_df$Y <- coords[,2]
+
+aggregated_df <- stations_df %>%
+  group_by(X, Y) %>%
+  summarise(across(where(is.numeric), mean, na.rm = TRUE))
+
+aggregated_sf <- st_as_sf(aggregated_df, coords = c("X", "Y"), crs = 32638)
+
+normalized_cols <- paste0(selected_params, "_norm")
+aggregated_sf$Pollution_Index <- rowMeans(st_drop_geometry(aggregated_sf)[, normalized_cols], na.rm = TRUE)
+
+p_idx_min <- min(aggregated_sf$Pollution_Index, na.rm = TRUE)
+p_idx_max <- max(aggregated_sf$Pollution_Index, na.rm = TRUE)
+aggregated_sf$Pollution_Index_Rescaled <- (aggregated_sf$Pollution_Index - p_idx_min) / (p_idx_max - p_idx_min)
+
+
+tmap_mode("plot")
+tm_shape(elevation_data) +
+  tm_raster(palette = "viridis", title = "Elevation (m)") +
+  tm_shape(aggregated_sf) +
+  tm_symbols(
+    col = "Pollution_Index_Rescaled",
+    palette = "-RdYlBu",
+    size = 0.5,
+    title.col = "Pollution Index",
+    style = "cont"
+  ) +
+  tm_layout(
+    main.title = "Aggregated Relative Pollution Levels",
+    legend.outside = TRUE
+  )
+```
+
+To analyze the relationship between elevation and water quality in Armenia, we processed elevation data from a Digital Elevation Model (DEM) and matched it with water sampling station coordinates. Key water quality parameters (BOD5, COD, NH4) were normalized to a 0–1 scale to create a Pollution Index, representing overall water quality. This index was further rescaled and aggregated spatially to ensure consistency across sampling points. This approach revealed that there is no strong correlation between elevation and pollution levels. The most polluted areas are near the capital, Yerevan, and Gyumri.
+
+\newpage
+
+
+# Conclusions
+
+The aim of our project was to look at the changes in water quality over time and across different areas in Armenia. It focuses on how natural and human-made factors affect water pollution. The analysis showed that elevation does not have a big effect on water pollution, but being close to cities plays a larger role. Areas near cities and factories had higher pollution levels, especially with heavy metals, showing the strong impact of human activities. This highlights the need to take action in these areas to reduce pollution.
+
+The data also showed seasonal patterns. Key indicators like Dissolved Oxygen (DO) and Biochemical Oxygen Demand (BOD5) changed with the seasons. Cooler months had higher DO levels because oxygen dissolves better in cold water, while warmer months had lower DO levels due to more biological activity using up oxygen. There were also differences between regions. For example, Sevan had better water quality compared to Hrazdan and Akhuryan, where pollution was worse and more varied.
+
+Our analysis showed the importance of managing water quality based on seasons and specific regions. By finding the main pollution sources and understanding seasonal changes, governments and organizations can take better steps to protect Armenia's water resources.
+
+\newpage
+
+
+# Interactive dashboard
+
+https://amkrtumyan.shinyapps.io/water/
+
+
+# References
+
+Majerek, Dariusz, et al. “Statistical Analysis of the Water Pollution Indicators Pertaining to Treated Municipal Sewage Introduced to the River.” MATEC Web of Conferences, vol. 252, no. 2019, 2019, p. 09009,
+ www.matec-conferences.org/articles/matecconf/abs/2019/01/matecconf_cmes2018_09009/matecconf_cmes2018_09009.html, https://doi.org/10.1051/matecconf/201925209009.

@@ -1,0 +1,13 @@
+name: water
+title: group_project
+username: amkrtumyan
+account: amkrtumyan
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 13535602
+bundleId: 9485757
+url: https://amkrtumyan.shinyapps.io/water/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: .RData|Final_Project.pdf|PCA_Biplot.pdf|README.md
